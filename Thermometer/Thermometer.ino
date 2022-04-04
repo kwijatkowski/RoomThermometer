@@ -9,16 +9,12 @@
 #include <MovingAverage.h>
 
 //HARDWARE SETUP
-
 bool arduinoMega = false;
 
 //NANO
-#define HISTORY_ARRY_LENGTH 40
+#define HISTORY_ARRY_LENGTH 30
 #define HISTORY_ARRY_PARAMS_COLUMNS 3
 #define TIME_HISTORY_ARRY_COLUMNS 4
-
-#define VAL_ROTARY_MIN 0
-#define VAL_ROTARY_MAX 150
 
 #define VOLTAGE_PIN 1
 #define encoder0PinA 2
@@ -63,6 +59,11 @@ int row2StringLength = 0;
 int activityTimerTimes = 0;
 int measureIterator = 0;
 int lowVoltageCheckIterator = 0;
+
+//encoder input min and max values
+int VAL_ROTARY_MIN = -1;
+int VAL_ROTARY_MAX = 1;
+
 bool measure = false;
 bool checkVoltage = false;
 bool ledOn = true;
@@ -71,21 +72,28 @@ bool isLcdOn = false;
 bool batteryLow = false;
 bool lowBatteryLedOn = false;
 bool killMode = false;
+bool encoderReverse = false;
 int backlight = BACKLIGHT_MIN_VALUE;
+int ROTARY_SCALE = 5; //scalling variable to filter out encoder noise
 
 int INT_MAX = 10000;
+
+//USER SETTINGS
+int CLOCK_SETUP_USER_INACTIVITY_TRESHOLD_SECONDS = 2;
+int OPERATION_USER_INACTIVITY_TRESHOLD_SECONDS = 10;
 
 //SETTINGS
 int MEASUREMENTS_ITERATOR_TRESHOLD = 1800;//600; // MEASUREMENTS_INTERVAL_SECONDS / MEASURE_TIMER_OVERFLOW_SECONDS;
 int LOW_VOLTAGE_ITERATOR = 1;
 int USER_INACTIVITY_ITERATOR = 10000; //1000 = 1s //USER_INACTIVITY_TRESHOLD_SECONDS / (USER_INACTIVITY_TIMER_OVERFLOW_MILISECONDS / 1000);
 
+// =========== SETUP ===========
 void setup() {
 	//Serial.begin(19200);
 	//Serial.println("Setup begin..");
 	//Serial.println("Setup timers");
 	cli();                       // disable all interrupts
-//measure timer
+	//measure timer
 	setupOneSecondTimer();
 	//activity timer
 	setupActivityTimer();
@@ -110,25 +118,107 @@ void setup() {
 	initializeBMP(bmpAddress, arduinoMega);
 	//lcd
 	turnDisplayOn(true);
+	setBacklight(calculateBacklight());
 
 	//clock
-	//Serial.println("Setup clock");
-  // seconds, minutes, hours, day of the week, day of the month, month, year
-	myRTC.setDS1302Time(0, 25, 9, 6, 14, 3, 2021); 
-	setupClock();
+	setupClockHardware();
 	clockPowerEnable(true);
 
-	//Serial.println("Measure and print first");
-	myRTC.updateTime();
-	printTimeToLcd(myRTC.year, myRTC.month, myRTC.dayofmonth, myRTC.hours, myRTC.minutes);	
+	//Serial.println("Setup clock");
+	setupDateTime();
+	//Serial.println("Measure and print first one");
 	readTemperatureAndPressureAndStore(true, true, -1);
+	setEncoderTresholdValues(0, 0, 150);
+	flipEncoder(); //want to go back in history when tuning left
 }
 
-void setupClock() {
+void setupDateTime() {
+	setUserInactivityTreshold(CLOCK_SETUP_USER_INACTIVITY_TRESHOLD_SECONDS);
+	int year = 2022;
+	uint8_t month = 1;
+	uint8_t dayOfMonth = 1;
+	uint8_t dayOfWeek = 1;
+	uint8_t hours = 12;
+	uint8_t minutes = 0;
+
+	//setup year
+	Serial.println("Setup year");
+	setEncoderTresholdValues(year, 2022, 2122);
+	while (userActive) {
+		year = getValRotary();
+		myRTC.setDS1302Time(0, minutes, hours, dayOfWeek, dayOfMonth, month, year);
+		printCurrentTimeToLcd();
+		printPointerToFirstRow(3);
+	}
+	confirmWithLed();
+
+	//setup month
+	Serial.println("Setup month");
+	userActive = true;
+	setEncoderTresholdValues(month, 1, 12);
+	while (userActive) {
+		month = getValRotary();
+		myRTC.setDS1302Time(0, minutes, hours, dayOfWeek, dayOfMonth, month, year);
+		printCurrentTimeToLcd();
+		printPointerToFirstRow(6);
+	}
+	confirmWithLed();
+
+	//setup day
+	Serial.println("Setup day");
+	userActive = true;
+	setEncoderTresholdValues(1, 1, 31);
+	while (userActive) {
+		dayOfMonth = getValRotary();
+		myRTC.setDS1302Time(0, minutes, hours, dayOfWeek, dayOfMonth, month, year);
+		printCurrentTimeToLcd();
+		printPointerToFirstRow(9);
+	}
+	confirmWithLed();
+
+	//setup hours
+	Serial.println("Setup hours");
+	userActive = true;
+	setEncoderTresholdValues(12, 0, 23);
+	while (userActive) {
+		hours = getValRotary();
+		myRTC.setDS1302Time(0, minutes, hours, dayOfWeek, dayOfMonth, month, year);
+		printCurrentTimeToLcd();
+		printPointerToFirstRow(12);
+	}
+	confirmWithLed();
+
+	//setup minutes
+	Serial.println("Setup minutes");
+	userActive = true;
+	setEncoderTresholdValues(0, 0, 59);
+	while (userActive) {
+		minutes = getValRotary();
+		myRTC.setDS1302Time(0, minutes, hours, dayOfWeek, dayOfMonth, month, year);
+		printCurrentTimeToLcd();
+		printPointerToFirstRow(15);
+	}
+	confirmWithLed();
+	setUserInactivityTreshold(OPERATION_USER_INACTIVITY_TRESHOLD_SECONDS);
+	userActive = true;
+}
+
+void confirmWithLed() {
+	turnOnLowBatteryLed(false);
+	turnOnLowBatteryLed(true);
+	delay(200);
+	turnOnLowBatteryLed(false);
+}
+
+void setUserInactivityTreshold(int seconds) {
+	USER_INACTIVITY_ITERATOR = seconds * 1000;
+}
+
+
+void setupClockHardware() {
 	pinMode(CLOCK_POWER_PIN, OUTPUT);
 	digitalWrite(CLOCK_POWER_PIN, HIGH);
 }
-
 
 void setupEncoder() {
 	//encoder
@@ -136,7 +226,6 @@ void setupEncoder() {
 	pinMode(encoder0PinB, INPUT_PULLUP);
 	attachInterrupt(0, doEncoder, CHANGE);
 }
-
 
 void setupOneSecondTimer() {
 	TCCR1A = 0;
@@ -169,10 +258,10 @@ void setupActivityTimer() {
 }
 
 //one second timer
-ISR(TIMER1_COMPA_vect) 
+ISR(TIMER1_COMPA_vect)
 {
 	++measureIterator;
-	if (measureIterator == MEASUREMENTS_ITERATOR_TRESHOLD) { 
+	if (measureIterator == MEASUREMENTS_ITERATOR_TRESHOLD) {
 		measureIterator = 0;
 		measure = true;
 	}
@@ -185,18 +274,15 @@ ISR(TIMER1_COMPA_vect)
 
 	if (batteryLow) {
 		blinkLowBatteryLed();
-	}	
+	}
 }
 
-void blinkLowBatteryLed() {
-	lowBatteryLedOn = !lowBatteryLedOn; //blink it on interrupt
-	digitalWrite(LOW_BATTERY_LED, lowBatteryLedOn);
-}
+
 
 //user activity check
 ISR(TIMER2_COMPA_vect)
 {
-	if (userActive) { ++activityTimerTimes; }	
+	if (userActive) { ++activityTimerTimes; }
 
 	if (activityTimerTimes == USER_INACTIVITY_ITERATOR) {
 		activityTimerTimes = 0;
@@ -210,36 +296,36 @@ void resetActivityTimer() {
 	activityTimerTimes = 0;
 }
 
-void loop() { 
+// =========== RUNTIME ===========
+void loop() {
 	turnDisplayOn(userActive); //turn on if user active, otherwise turn off
 
 	if (checkVoltage) {
 		batteryLow = isLowBattery();
 		killMode = isBatteryCriticallyLow();
 		checkVoltage = false;
-	}	
+	}
 
 	//read sensors
 	if (measure) {
 		//Serial.print("M>>");
-		readTemperatureAndPressureAndStore(true, false, -1);		
+		readTemperatureAndPressureAndStore(true, false, -1);
 		//Serial.print("analog: ");
 		//Serial.println(analogIn);		
 		//ledOn = !ledOn;
-		measure = false;	
+		measure = false;
 		//Serial.println("M<<");
 	}
 
 	if (userActive) { //only show something if user active and battery not low		
-    int back_into_history_rows = toHistory(valRotary);
-    
+		int back_into_history_rows = toHistory(getValRotary());
+
 		if (back_into_history_rows == 0) { //current screen >> live measurements
-			myRTC.updateTime();
-			printTimeToLcd(myRTC.year, myRTC.month, myRTC.dayofmonth, myRTC.hours, myRTC.minutes);
+			printCurrentTimeToLcd();
 			//measure and print current
 			readTemperatureAndPressureAndStore(false, true, back_into_history_rows);
 		}
-		else if (valRotary != lastValRotary) {
+		else if (getValRotary() != lastValRotary) {
 			Serial.print("history: ");
 			Serial.println(back_into_history_rows);
 			if (back_into_history_rows != INT_MAX) {
@@ -261,12 +347,38 @@ void loop() {
 				float batteryVoltage = readBatteryVoltage();
 				printStatusScreen(millis(), batteryVoltage);
 			}
-			lastValRotary = valRotary;
+			lastValRotary = getValRotary();
 		}
 	}
 	else {
 		sleepNow();
 	}
+}
+
+//ENCODER REVERSE AND LIMITS
+void flipEncoder() {
+	encoderReverse = !encoderReverse;
+}
+
+int getValRotary() {
+	return valRotary / ROTARY_SCALE;
+}
+
+int getValRotaryMin() {
+	return VAL_ROTARY_MIN / ROTARY_SCALE;
+}
+
+int getValRotaryMax() {
+	return VAL_ROTARY_MAX / ROTARY_SCALE;
+}
+
+void blinkLowBatteryLed() {
+	lowBatteryLedOn = !lowBatteryLedOn; //blink it on interrupt
+	digitalWrite(LOW_BATTERY_LED, lowBatteryLedOn);
+}
+
+void turnOnLowBatteryLed(bool turnOn) {
+	digitalWrite(LOW_BATTERY_LED, turnOn);
 }
 
 void printStatusScreen(int uptimeMillis, float voltage) {
@@ -290,12 +402,12 @@ void printStatusScreen(int uptimeMillis, float voltage) {
 	lcd.print(lineBuff1);
 }
 
-void sleepNow(){
+void sleepNow() {
 	//Serial.println("sleep");
 	clockPowerEnable(false);
 	digitalWrite(LED_BUILTIN, LOW);
 	// Choose our preferred sleep mode:
-	if (killMode) { 
+	if (killMode) {
 		digitalWrite(LOW_BATTERY_LED, LOW);
 		set_sleep_mode(SLEEP_MODE_PWR_DOWN);
 		//Serial.println("kill!!!");
@@ -314,8 +426,8 @@ void sleepNow(){
 	sleep_mode();
 	// Upon waking up, sketch continues from this point.
 	sleep_disable();
-/* Re-enable the peripherals. */
-	//power_all_enable();
+	/* Re-enable the peripherals. */
+		//power_all_enable();
 	power_twi_enable();
 	power_timer0_enable();
 	power_timer2_enable();
@@ -341,11 +453,10 @@ bool isBatteryCriticallyLow() {
 	return critical;
 }
 
-
 float readBatteryVoltage() {
 	int voltageIn = analogRead(VOLTAGE_PIN);
-	Serial.print("voltageIn ");
-	Serial.println(voltageIn);
+	//Serial.print("voltageIn ");
+	//Serial.println(voltageIn);
 	float voltage = voltageIn * (5.0 / 1023) * ((R1 + R2) / R2);
 	return voltage;
 }
@@ -360,7 +471,7 @@ void clockPowerEnable(bool enable) {
 }
 
 int toHistory(int valRotary) {
-	int toHistory = map(valRotary, VAL_ROTARY_MIN, VAL_ROTARY_MAX, -1, HISTORY_ARRY_LENGTH + 2 ); // +2 as I want to have status screen at the end
+	int toHistory = map(getValRotary(), getValRotaryMin(), getValRotaryMax(), -1, HISTORY_ARRY_LENGTH + 1); // +2 as I want to have status screen at the end
 	if (toHistory < 0) {
 		toHistory = 0;
 	}
@@ -375,7 +486,7 @@ int toHistory(int valRotary) {
 
 int toHistory1(int valRotary) {
 
-	int toHistory = map(valRotary, VAL_ROTARY_MIN, VAL_ROTARY_MAX, -1, HISTORY_ARRY_LENGTH + 2); // +2 as I want to have status screen at the end
+	int toHistory = map(getValRotary(), VAL_ROTARY_MIN, VAL_ROTARY_MAX, -1, HISTORY_ARRY_LENGTH + 2); // +2 as I want to have status screen at the end
 	if (toHistory > HISTORY_ARRY_LENGTH) {
 		toHistory = INT_MAX; //indicate status screen //HISTORY_ARRY_LENGTH
 		return toHistory;
@@ -425,6 +536,11 @@ void storeMeasurementsToHistoryTable(float press, float temp, int counter) {
 	}
 }
 
+void printCurrentTimeToLcd() {
+	myRTC.updateTime();
+	printTimeToLcd(myRTC.year, myRTC.month, myRTC.dayofmonth, myRTC.hours, myRTC.minutes);
+}
+
 void printTimeToLcd(int year, int month, int day, int hours, int minutes) {
 	char lineBuff[LCD_CHARS + 1] = ""; //+1 for string termination char
 
@@ -447,6 +563,12 @@ void printTimeToLcd(int year, int month, int day, int hours, int minutes) {
 	free(monthStr);
 	free(dayOfMonthStr);
 	free(minutesStr);
+}
+
+void printPointerToFirstRow(int at) {
+	lcdClear(1);
+	lcd.setCursor(at, 1);
+	lcd.print('^');
 }
 
 void lcdClear(int row) {
@@ -482,20 +604,34 @@ void doEncoder()
 {
 	userActive = true;
 	resetActivityTimer();
+	bool decrease = digitalRead(encoder0PinA) == digitalRead(encoder0PinB);
+	decrease = encoderReverse ? !decrease : decrease;
 
-	if (digitalRead(encoder0PinA) == digitalRead(encoder0PinB))
-	{
-		if (valRotary < VAL_ROTARY_MAX){
-			valRotary++;      
-		}
-	}
-	else
+	if (decrease)
 	{
 		if (valRotary > VAL_ROTARY_MIN) {
 			valRotary--;
 		}
 	}
+	else
+	{
+		if (valRotary < VAL_ROTARY_MAX) {
+			valRotary++;
+		}
+	}
+	Serial.print(valRotary);
+	Serial.print(" ");
+	Serial.print(getValRotary());
+	Serial.println();
 
+}
+
+
+
+void setEncoderTresholdValues(int initial, int min, int max) {
+	valRotary = initial * ROTARY_SCALE;
+	VAL_ROTARY_MIN = min * ROTARY_SCALE;
+	VAL_ROTARY_MAX = max * ROTARY_SCALE;
 }
 
 int calculateBacklight() {
@@ -506,7 +642,7 @@ int calculateBacklight() {
 	if (backlightTmp < BACKLIGHT_MIN_VALUE) backlightTmp = BACKLIGHT_MIN_VALUE;
 	if (backlightTmp > BACKLIGHT_MAX_VALUE) backlightTmp = BACKLIGHT_MAX_VALUE;
 
-	return backlightTmp;  
+	return backlightTmp;
 }
 
 void turnDisplayOn(bool enable) {
@@ -516,14 +652,17 @@ void turnDisplayOn(bool enable) {
 			lcd.init(); // initialize the lcd
 		}
 		isLcdOn = true;
-		backlight = calculateBacklight();
-		analogWrite(BACKLIGHT_PIN, backlight);
+		setBacklight(calculateBacklight());
 	}
 	else {
 		digitalWrite(DISPLAY_POWER_PIN, LOW);
 		isLcdOn = false;
-		analogWrite(BACKLIGHT_PIN, 0);
+		setBacklight(0);
 	}
+}
+
+void setBacklight(int backlight) {
+	analogWrite(BACKLIGHT_PIN, backlight);
 }
 
 void printPTHistoryRow(float row[], int back) {
