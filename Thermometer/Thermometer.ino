@@ -40,8 +40,8 @@ bool arduinoMega = false;
 float R1 = 37.3;
 float R2 = 17.337;
 
-float LOW_VOLTAGE_TRESHOLD = 6.5; // >> measurement below this value is not reliable 
-float CRITICAL_LOW_VOLTAGE_TRESHOLD = 6.4; // >> measurement below this value is not reliable 
+float LOW_VOLTAGE_TRESHOLD = 3.5; // >> measurement below this value is not reliable 
+float CRITICAL_LOW_VOLTAGE_TRESHOLD = 3.4; // >> measurement below this value is not reliable 
 
 //HARDWARE
 Adafruit_BMP280 bmp; // I2C
@@ -114,7 +114,7 @@ void setup() {
 	//clock
 	//Serial.println("Setup clock");
   // seconds, minutes, hours, day of the week, day of the month, month, year
-	//myRTC.setDS1302Time(0, 23, 21, 2, 26, 1, 2021); 
+	myRTC.setDS1302Time(0, 25, 9, 6, 14, 3, 2021); 
 	setupClock();
 	clockPowerEnable(true);
 
