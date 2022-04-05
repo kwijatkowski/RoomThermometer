@@ -122,7 +122,7 @@ void setup() {
 
 	//clock
 	setupClockHardware();
-	clockPowerEnable(true);
+	displayPowerEnable(true);
 
 	//Serial.println("Setup clock");
 	setupDateTime();
@@ -142,63 +142,59 @@ void setupDateTime() {
 	uint8_t minutes = 0;
 
 	//setup year
-	Serial.println("Setup year");
+	//Serial.println("Setup year");
 	setEncoderTresholdValues(year, 2022, 2122);
 	while (userActive) {
 		year = getValRotary();
-		myRTC.setDS1302Time(0, minutes, hours, dayOfWeek, dayOfMonth, month, year);
-		printCurrentTimeToLcd();
+		printTimeToLcd(year, month, dayOfMonth, hours, minutes);
 		printPointerToFirstRow(3);
 	}
 	confirmWithLed();
 
 	//setup month
-	Serial.println("Setup month");
+	//Serial.println("Setup month");
 	userActive = true;
 	setEncoderTresholdValues(month, 1, 12);
 	while (userActive) {
 		month = getValRotary();
-		myRTC.setDS1302Time(0, minutes, hours, dayOfWeek, dayOfMonth, month, year);
-		printCurrentTimeToLcd();
+		printTimeToLcd(year, month, dayOfMonth, hours, minutes);
 		printPointerToFirstRow(6);
 	}
 	confirmWithLed();
 
 	//setup day
-	Serial.println("Setup day");
+	//Serial.println("Setup day");
 	userActive = true;
 	setEncoderTresholdValues(1, 1, 31);
 	while (userActive) {
 		dayOfMonth = getValRotary();
-		myRTC.setDS1302Time(0, minutes, hours, dayOfWeek, dayOfMonth, month, year);
-		printCurrentTimeToLcd();
+		printTimeToLcd(year, month, dayOfMonth, hours, minutes);
 		printPointerToFirstRow(9);
 	}
 	confirmWithLed();
 
 	//setup hours
-	Serial.println("Setup hours");
+	//Serial.println("Setup hours");
 	userActive = true;
 	setEncoderTresholdValues(12, 0, 23);
 	while (userActive) {
 		hours = getValRotary();
-		myRTC.setDS1302Time(0, minutes, hours, dayOfWeek, dayOfMonth, month, year);
-		printCurrentTimeToLcd();
+		printTimeToLcd(year, month, dayOfMonth, hours, minutes);
 		printPointerToFirstRow(12);
 	}
 	confirmWithLed();
 
 	//setup minutes
-	Serial.println("Setup minutes");
+	//Serial.println("Setup minutes");
 	userActive = true;
 	setEncoderTresholdValues(0, 0, 59);
 	while (userActive) {
 		minutes = getValRotary();
-		myRTC.setDS1302Time(0, minutes, hours, dayOfWeek, dayOfMonth, month, year);
-		printCurrentTimeToLcd();
+		printTimeToLcd(year, month, dayOfMonth, hours, minutes);
 		printPointerToFirstRow(15);
 	}
 	confirmWithLed();
+	myRTC.setDS1302Time(0, minutes, hours, dayOfWeek, dayOfMonth, month, year);
 	setUserInactivityTreshold(OPERATION_USER_INACTIVITY_TRESHOLD_SECONDS);
 	userActive = true;
 }
@@ -261,7 +257,7 @@ void setupActivityTimer() {
 ISR(TIMER1_COMPA_vect)
 {
 	++measureIterator;
-	if (measureIterator == MEASUREMENTS_ITERATOR_TRESHOLD) {
+	if (shouldMeasure()) {
 		measureIterator = 0;
 		measure = true;
 	}
@@ -277,7 +273,9 @@ ISR(TIMER1_COMPA_vect)
 	}
 }
 
-
+bool shouldMeasure() {
+	return measureIterator == MEASUREMENTS_ITERATOR_TRESHOLD && (myRTC.minutes == 30 || myRTC.minutes == 0); //every 30 minutes
+}
 
 //user activity check
 ISR(TIMER2_COMPA_vect)
@@ -404,7 +402,7 @@ void printStatusScreen(int uptimeMillis, float voltage) {
 
 void sleepNow() {
 	//Serial.println("sleep");
-	clockPowerEnable(false);
+	displayPowerEnable(false);
 	digitalWrite(LED_BUILTIN, LOW);
 	// Choose our preferred sleep mode:
 	if (killMode) {
@@ -433,7 +431,7 @@ void sleepNow() {
 	power_timer2_enable();
 	power_adc_enable();
 	power_spi_enable();
-	clockPowerEnable(true);
+	displayPowerEnable(true);
 	//digitalWrite(LED_BUILTIN, HIGH);
 	//Serial.println("wakeUP");
 }
@@ -461,7 +459,7 @@ float readBatteryVoltage() {
 	return voltage;
 }
 
-void clockPowerEnable(bool enable) {
+void displayPowerEnable(bool enable) {
 	if (enable) {
 		digitalWrite(DISPLAY_POWER_PIN, HIGH);
 	}
@@ -619,10 +617,10 @@ void doEncoder()
 			valRotary++;
 		}
 	}
-	Serial.print(valRotary);
-	Serial.print(" ");
-	Serial.print(getValRotary());
-	Serial.println();
+//	Serial.print(valRotary);
+//	Serial.print(" ");
+//	Serial.print(getValRotary());
+//	Serial.println();
 
 }
 
