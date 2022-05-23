@@ -65,14 +65,13 @@ int lastValRotary = 0;
 int row1StringLength = 0;
 int row2StringLength = 0;
 int activityTimerTimes = 0;
-int measureIterator = 0;
 int lowVoltageCheckIterator = 0;
+int lastMinuteTimeMeasured = 0;
 
 //encoder input min and max values
 int VAL_ROTARY_MIN = -1;
 int VAL_ROTARY_MAX = 1;
 
-bool measure = false;
 bool checkVoltage = false;
 bool ledOn = true;
 bool userActive = true;
@@ -99,8 +98,6 @@ int USER_INACTIVITY_ITERATOR = 10000; //1000 = 1s //USER_INACTIVITY_TRESHOLD_SEC
 // =========== SETUP ===========
 void setup() {
   Serial.begin(19200);
-  //Serial.println("Setup begin..");
-  //Serial.println("Setup timers");
   cli(); // disable all interrupts
   //measure timer
   setupOneSecondTimer();
@@ -108,8 +105,6 @@ void setup() {
   setupActivityTimer();
   sei();
 
-  //Serial.println("Setup pins");
-  //pinMode(LED_PIN, OUTPUT);
   pinMode(DISPLAY_POWER_PIN, OUTPUT);
   digitalWrite(DISPLAY_POWER_PIN, HIGH);
 
@@ -120,7 +115,6 @@ void setup() {
 
   pinMode(BACKLIGHT_PIN, OUTPUT);
 
-  //Serial.println("Setup sensors");
   setupEncoder();
   //bmp
   uint8_t bmpAddress = 0x76;
@@ -133,22 +127,19 @@ void setup() {
   setupClockHardware();
   displayPowerEnable(true);
 
-  //Serial.println("Setup clock");
   setupDateTime();
-  //  myRTC.setDS1302Time(0, minutes, hours, dayOfWeek, dayOfMonth, month, year);
-  //myRTC.setDS1302Time(0, 4, 22, 6, 21, 5, 2022);
-  initMeasureCounter();
 
-  //Serial.println("Measure and print first one");
+  //Measure and print first one
   readTemperatureAndPressureAndStore(true, true, -1);
+  setValuesMeasuredAtThisMinute();
   setEncoderTresholdValues(0, 0, 150);
   flipEncoder(); //want to go back in history when tuning left
 }
 
-void initMeasureCounter() {
-  //need to sync iterator with clock
-  measureIterator = (myRTC.minutes % MEASURE_EVERY_MINUTES) * 60 + myRTC.seconds;
+void setValuesMeasuredAtThisMinute() {
+    lastMinuteTimeMeasured = myRTC.minutes;
 }
+
 
 void setupDateTime() {
   setUserInactivityTreshold(CLOCK_SETUP_USER_INACTIVITY_TRESHOLD_SECONDS);
@@ -156,6 +147,8 @@ void setupDateTime() {
   //set date time
   int wantToSetDateTime = 0;
   setEncoderTresholdValues(wantToSetDateTime, 0, 1);
+
+  resetActivityTimer();
   while (userActive) {
     wantToSetDateTime = getValRotary();
     lcd.setCursor(0, 0);
@@ -166,7 +159,7 @@ void setupDateTime() {
     }
   }
   if (wantToSetDateTime == 1) {
-
+    
     int year = 2022;
     uint8_t month = 1;
     uint8_t dayOfMonth = 1;
@@ -174,7 +167,8 @@ void setupDateTime() {
     uint8_t hours = 12;
     uint8_t minutes = 0;
 
-    //setup year  
+    //setup year
+    resetActivityTimer();  
     setEncoderTresholdValues(year, 2022, 2122);
     while (userActive) {
       year = getValRotary();
@@ -184,7 +178,7 @@ void setupDateTime() {
     confirmWithLed();
 
     //setup month 
-    userActive = true;
+    resetActivityTimer();
     setEncoderTresholdValues(month, 1, 12);
     while (userActive) {
       month = getValRotary();
@@ -194,7 +188,7 @@ void setupDateTime() {
     confirmWithLed();
 
     //setup day 
-    userActive = true;
+    resetActivityTimer();
     setEncoderTresholdValues(1, 1, 31);
     while (userActive) {
       dayOfMonth = getValRotary();
@@ -204,7 +198,7 @@ void setupDateTime() {
     confirmWithLed();
 
     //setup hours 
-    userActive = true;
+    resetActivityTimer();
     setEncoderTresholdValues(12, 0, 23);
     while (userActive) {
       hours = getValRotary();
@@ -214,7 +208,7 @@ void setupDateTime() {
     confirmWithLed();
 
     //setup minutes 
-    userActive = true;
+    resetActivityTimer();
     setEncoderTresholdValues(0, 0, 59);
     while (userActive) {
       minutes = getValRotary();
@@ -225,7 +219,7 @@ void setupDateTime() {
     myRTC.setDS1302Time(0, minutes, hours, dayOfWeek, dayOfMonth, month, year);
   }
   setUserInactivityTreshold(OPERATION_USER_INACTIVITY_TRESHOLD_SECONDS);
-  userActive = true;
+  resetActivityTimer();
 }
 
 void confirmWithLed() {
@@ -283,13 +277,7 @@ void setupActivityTimer() {
 
 //one second timer
 ISR(TIMER1_COMPA_vect) {
-  ++measureIterator;
   updateTime();
-
-  if (shouldMeasure()) {
-    measureIterator = myRTC.seconds; //to do not loose sync
-    measure = true;
-  }
 
   ++lowVoltageCheckIterator;
   if (lowVoltageCheckIterator == LOW_VOLTAGE_ITERATOR) {
@@ -312,27 +300,24 @@ void updateTime() {
   Serial.println();
 }
 
+
 bool shouldMeasure() {
-  //iterator is counting seconds as it is incremented in one second timer
+    int modulo = myRTC.minutes % MEASURE_EVERY_MINUTES;
 
-  // Serial.print("iterator ");
-  // Serial.print(measureIterator);
-  //Serial.print(" minutes ");
-  //Serial.print(myRTC.minutes);
-  ///Serial.print(" measure ");
+Serial.print("current minute ");
+    Serial.print(myRTC.minutes);
+    Serial.print(" modulo ");
+    Serial.print(modulo);
+    Serial.print(" last measured ");
+    Serial.print(lastMinuteTimeMeasured);
+    Serial.println();
 
-  //Serial.print(" c ");
+    if (myRTC.minutes != lastMinuteTimeMeasured && modulo == 0) { //should measure this minute and this is first time we process this minute
+      Serial.println("measuring!");
+        return true;
+    }
 
-  int compare = MEASURE_EVERY_MINUTES * 60;
-  // Serial.print(compare);
-  int modulo = myRTC.minutes % MEASURE_EVERY_MINUTES;
-  //Serial.print(" m ");
-  //Serial.print(modulo);
-
-  bool measure = measureIterator == compare && (modulo == 0);
-  //Serial.print(measure);
-  //Serial.println();
-  return measure;
+    return false;
 }
 
 //user activity check
@@ -351,6 +336,7 @@ ISR(TIMER2_COMPA_vect) {
 void resetActivityTimer() {
   TCNT2 = 0;
   activityTimerTimes = 0;
+  userActive = true;
 }
 
 // =========== RUNTIME ===========
@@ -364,14 +350,9 @@ void loop() {
   }
 
   //read sensors
-  if (measure) {
-    //Serial.print("M>>");
+  if (shouldMeasure()) {
     readTemperatureAndPressureAndStore(true, false, -1);
-    //Serial.print("analog: ");
-    //Serial.println(analogIn);   
-    //ledOn = !ledOn;
-    measure = false;
-    //Serial.println("M<<");
+    setValuesMeasuredAtThisMinute();
   }
 
   if (userActive) { //only show something if user active and battery not low    
@@ -394,7 +375,6 @@ void loop() {
           timeHistoryArry[historyRowIndex][2],
           timeHistoryArry[historyRowIndex][3]);
 
-        //crashing when turning left >> value not 0 yet
         printPTHistoryRow(history_arry[historyRowIndex], back_into_history_rows);
       } else { //status screen
         //Serial.println("status Screen!");
@@ -650,8 +630,7 @@ void printPTToLcd(float temp, float press, int backHistory) {
   lcd.print(lineBuff);
 }
 
-void doEncoder() {
-  userActive = true;
+void doEncoder() {  
   resetActivityTimer();
   bool decrease = digitalRead(encoder0PinA) == digitalRead(encoder0PinB);
   decrease = encoderReverse ? !decrease : decrease;
