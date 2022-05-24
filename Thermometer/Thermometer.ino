@@ -90,14 +90,14 @@ int CLOCK_SETUP_USER_INACTIVITY_TRESHOLD_SECONDS = 4;
 int OPERATION_USER_INACTIVITY_TRESHOLD_SECONDS = 10;
 
 //SETTINGS
-int MEASURE_EVERY_MINUTES = 30;
+int MEASURE_EVERY_MINUTES = 15;
 //int MEASUREMENTS_ITERATOR_TRESHOLD = MEASURE_EVERY_MINUTES * 60;//1800;//600; // MEASUREMENTS_INTERVAL_SECONDS / MEASURE_TIMER_OVERFLOW_SECONDS;
 int LOW_VOLTAGE_ITERATOR = 1;
 int USER_INACTIVITY_ITERATOR = 10000; //1000 = 1s //USER_INACTIVITY_TRESHOLD_SECONDS / (USER_INACTIVITY_TIMER_OVERFLOW_MILISECONDS / 1000);
 
 // =========== SETUP ===========
 void setup() {
-  Serial.begin(19200);
+  //Serial.begin(19200);
   cli(); // disable all interrupts
   //measure timer
   setupOneSecondTimer();
@@ -120,18 +120,15 @@ void setup() {
   uint8_t bmpAddress = 0x76;
   initializeBMP(bmpAddress, arduinoMega);
   //lcd
-  turnDisplayOn(true);
-  setBacklight(calculateBacklight());
+  turnDisplayOn(true); 
+  setBacklight(0.75 * BACKLIGHT_MAX_VALUE); //moving average not initialized yet, set any value so screen is readable
 
   //clock
-  setupClockHardware();
-  displayPowerEnable(true);
-
+  setupClockHardware();  
   setupDateTime();
 
   //Measure and print first one
-  readTemperatureAndPressureAndStore(true, true, -1);
-  setValuesMeasuredAtThisMinute();
+  readTemperatureAndPressureAndStore(true, true, -1);  
   setEncoderTresholdValues(0, 0, 150);
   flipEncoder(); //want to go back in history when tuning left
 }
@@ -286,7 +283,7 @@ ISR(TIMER1_COMPA_vect) {
   }
 
   if (batteryLow) {
-    blinkLowBatteryLed();
+    //blinkLowBatteryLed();
   }
 }
 
@@ -300,23 +297,20 @@ void updateTime() {
   Serial.println();
 }
 
-
 bool shouldMeasure() {
     int modulo = myRTC.minutes % MEASURE_EVERY_MINUTES;
 
-Serial.print("current minute ");
-    Serial.print(myRTC.minutes);
-    Serial.print(" modulo ");
-    Serial.print(modulo);
-    Serial.print(" last measured ");
-    Serial.print(lastMinuteTimeMeasured);
-    Serial.println();
-
     if (myRTC.minutes != lastMinuteTimeMeasured && modulo == 0) { //should measure this minute and this is first time we process this minute
-      Serial.println("measuring!");
+        Serial.print("current minute ");
+        Serial.print(myRTC.minutes);
+        Serial.print(" modulo ");
+        Serial.print(modulo);
+        Serial.print(" last measured ");
+        Serial.print(lastMinuteTimeMeasured);
+        Serial.println();
+        Serial.println("measuring!");
         return true;
     }
-
     return false;
 }
 
@@ -345,14 +339,15 @@ void loop() {
 
   if (checkVoltage) {
     batteryLow = isLowBattery();
-    killMode = isBatteryCriticallyLow();
+    //killMode = isBatteryCriticallyLow(); //kill mode disabled
     checkVoltage = false;
   }
 
   //read sensors
   if (shouldMeasure()) {
-    readTemperatureAndPressureAndStore(true, false, -1);
-    setValuesMeasuredAtThisMinute();
+      blinkLowBatteryLed();
+      readTemperatureAndPressureAndStore(true, false, -1);  
+      Serial.println("measured");  
   }
 
   if (userActive) { //only show something if user active and battery not low    
@@ -543,12 +538,26 @@ void readTemperatureAndPressureAndStore(bool store, bool print, int backHistory)
     }
     storeMeasurementsToHistoryTable(p, t, counter);
     storeTimeToHistoryArry(counter);
+    setValuesMeasuredAtThisMinute();
+    printPTTtoSerial(t,p,backHistory);
     counter++;
   }
 
   if (print) {
     printPTToLcd(t, p, backHistory);
   }
+
+  
+}
+
+void printPTTtoSerial(float temp, float press, int backHistory) {
+  Serial.print("t: ");
+  Serial.print(temp);
+  Serial.print(" p: ");
+  Serial.print(press);
+  Serial.print(" his: ");
+  Serial.print(backHistory);
+  Serial.println();
 }
 
 void storeTimeToHistoryArry(int counter) {
@@ -655,7 +664,8 @@ void setEncoderTresholdValues(int initial, int min, int max) {
 int calculateBacklight() {
   int lightValue = analogRead(LIGHT_SENSOR_PIN); //up if brighter
   lightMA.push(lightValue);
-  int backlightTmp = 2.5 * map(lightMA.get(), LIGHT_SENSOR_MIN_VALUE, LIGHT_SENSOR_MAX_VALUE, BACKLIGHT_MIN_VALUE, BACKLIGHT_MAX_VALUE);
+  int scallingVar = 5; //up >> brighter
+  int backlightTmp = scallingVar * map(lightMA.get(), LIGHT_SENSOR_MIN_VALUE, LIGHT_SENSOR_MAX_VALUE, BACKLIGHT_MIN_VALUE, BACKLIGHT_MAX_VALUE);
 
   if (backlightTmp < BACKLIGHT_MIN_VALUE) backlightTmp = BACKLIGHT_MIN_VALUE;
   if (backlightTmp > BACKLIGHT_MAX_VALUE) backlightTmp = BACKLIGHT_MAX_VALUE;
