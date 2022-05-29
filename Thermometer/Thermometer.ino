@@ -20,7 +20,7 @@
 bool arduinoMega = false;
 
 //NANO
-#define HISTORY_ARRY_LENGTH 30
+#define HISTORY_ARRY_LENGTH 48
 #define HISTORY_ARRY_PARAMS_COLUMNS 3
 #define TIME_HISTORY_ARRY_COLUMNS 4
 
@@ -55,18 +55,18 @@ MovingAverage < unsigned > lightMA(10, 0);
 
 //HISTORY ARRYS ALLOCATION
 float history_arry[HISTORY_ARRY_LENGTH][HISTORY_ARRY_PARAMS_COLUMNS];
-int timeHistoryArry[HISTORY_ARRY_LENGTH][TIME_HISTORY_ARRY_COLUMNS];
+byte timeHistoryArry[HISTORY_ARRY_LENGTH][TIME_HISTORY_ARRY_COLUMNS];
 
 //STATE VARIABLES
-int counter = 0;
-int totalEntries = 0;
+byte counter = 0;
+byte totalEntries = 0;
 int valRotary = 0;
 int lastValRotary = 0;
-int row1StringLength = 0;
-int row2StringLength = 0;
+byte row1StringLength = 0;
+byte row2StringLength = 0;
 int activityTimerTimes = 0;
 int lowVoltageCheckIterator = 0;
-int lastMinuteTimeMeasured = 0;
+byte lastMinuteTimeMeasured = 0;
 
 //encoder input min and max values
 int VAL_ROTARY_MIN = -1;
@@ -90,7 +90,7 @@ int CLOCK_SETUP_USER_INACTIVITY_TRESHOLD_SECONDS = 4;
 int OPERATION_USER_INACTIVITY_TRESHOLD_SECONDS = 10;
 
 //SETTINGS
-int MEASURE_EVERY_MINUTES = 15;
+int MEASURE_EVERY_MINUTES = 30;
 //int MEASUREMENTS_ITERATOR_TRESHOLD = MEASURE_EVERY_MINUTES * 60;//1800;//600; // MEASUREMENTS_INTERVAL_SECONDS / MEASURE_TIMER_OVERFLOW_SECONDS;
 int LOW_VOLTAGE_ITERATOR = 1;
 int USER_INACTIVITY_ITERATOR = 10000; //1000 = 1s //USER_INACTIVITY_TRESHOLD_SECONDS / (USER_INACTIVITY_TIMER_OVERFLOW_MILISECONDS / 1000);
@@ -144,11 +144,12 @@ void setupDateTime() {
   //set date time
   int wantToSetDateTime = 0;
   setEncoderTresholdValues(wantToSetDateTime, 0, 1);
+  printCurrentTimeToLcd();
 
   resetActivityTimer();
   while (userActive) {
     wantToSetDateTime = getValRotary();
-    lcd.setCursor(0, 0);
+    lcd.setCursor(0, 1);
     if (wantToSetDateTime == 0) {
       lcd.print("Set time Y/N > N");
     } else {
@@ -289,26 +290,26 @@ ISR(TIMER1_COMPA_vect) {
 
 void updateTime() {
   myRTC.updateTime();
-  Serial.print(myRTC.hours);
-  Serial.print(":");
-  Serial.print(myRTC.minutes);
-  Serial.print(":");
-  Serial.print(myRTC.seconds);
-  Serial.println();
+  //Serial.print(myRTC.hours);
+  //Serial.print(":");
+  //Serial.print(myRTC.minutes);
+  //Serial.print(":");
+  //Serial.print(myRTC.seconds);
+  //Serial.println();
 }
 
 bool shouldMeasure() {
     int modulo = myRTC.minutes % MEASURE_EVERY_MINUTES;
 
     if (myRTC.minutes != lastMinuteTimeMeasured && modulo == 0) { //should measure this minute and this is first time we process this minute
-        Serial.print("current minute ");
-        Serial.print(myRTC.minutes);
-        Serial.print(" modulo ");
-        Serial.print(modulo);
-        Serial.print(" last measured ");
-        Serial.print(lastMinuteTimeMeasured);
-        Serial.println();
-        Serial.println("measuring!");
+        //Serial.print("current minute ");
+        //Serial.print(myRTC.minutes);
+        //Serial.print(" modulo ");
+        //Serial.print(modulo);
+        //Serial.print(" last measured ");
+        //Serial.print(lastMinuteTimeMeasured);
+        //Serial.println();
+        //Serial.println("measuring!");
         return true;
     }
     return false;
@@ -347,7 +348,7 @@ void loop() {
   if (shouldMeasure()) {
       blinkLowBatteryLed();
       readTemperatureAndPressureAndStore(true, false, -1);  
-      Serial.println("measured");  
+      //Serial.println("measured");  
   }
 
   if (userActive) { //only show something if user active and battery not low    
@@ -462,7 +463,6 @@ void sleepNow() {
   power_timer2_enable();
   power_adc_enable();
   power_spi_enable();
-  displayPowerEnable(true);
   //digitalWrite(LED_BUILTIN, HIGH);
   //Serial.println("wakeUP");
 }
@@ -529,7 +529,7 @@ int toHistory1(int valRotary) {
   return toHistory;
 }
 
-void readTemperatureAndPressureAndStore(bool store, bool print, int backHistory) {
+void readTemperatureAndPressureAndStore(bool store, bool print, byte backHistory) {
   float t = bmp.readTemperature();
   float p = bmp.readPressure() / 100; //to hPa
   if (store) {
@@ -545,29 +545,27 @@ void readTemperatureAndPressureAndStore(bool store, bool print, int backHistory)
 
   if (print) {
     printPTToLcd(t, p, backHistory);
-  }
-
-  
+  }  
 }
 
-void printPTTtoSerial(float temp, float press, int backHistory) {
-  Serial.print("t: ");
-  Serial.print(temp);
-  Serial.print(" p: ");
-  Serial.print(press);
-  Serial.print(" his: ");
-  Serial.print(backHistory);
-  Serial.println();
+void printPTTtoSerial(float temp, float press, byte backHistory) {
+  //Serial.print("t: ");
+  //Serial.print(temp);
+  //Serial.print(" p: ");
+  //Serial.print(press);
+  //Serial.print(" his: ");
+  //Serial.print(backHistory);
+  //Serial.println();
 }
 
-void storeTimeToHistoryArry(int counter) {
+void storeTimeToHistoryArry(byte counter) {
   timeHistoryArry[counter][0] = myRTC.month;
   timeHistoryArry[counter][1] = myRTC.dayofmonth;
   timeHistoryArry[counter][2] = myRTC.hours;
   timeHistoryArry[counter][3] = myRTC.minutes;
 }
 
-void storeMeasurementsToHistoryTable(float press, float temp, int counter) {
+void storeMeasurementsToHistoryTable(float press, float temp, byte counter) {
   history_arry[counter][0] = totalEntries;
   history_arry[counter][1] = temp;
   history_arry[counter][2] = press;
@@ -616,7 +614,7 @@ void lcdClear(int row) {
   lcd.println("                ");
 }
 
-void printPTToLcd(float temp, float press, int backHistory) {
+void printPTToLcd(float temp, float press, byte backHistory) {
   char lineBuff[LCD_CHARS + 1] = "";
   int tempInt1 = temp;
   float tempFrac = temp - tempInt1;
